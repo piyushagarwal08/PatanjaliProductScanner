@@ -120,14 +120,18 @@
   @keyframes flash{0%{background:var(--signal-soft);border-color:var(--signal)}100%{background:var(--card);border-color:var(--hair)}}
 
   /* Camera tools */
-  .cam-tools{display:flex;align-items:center;gap:12px;margin-top:10px;padding:0 2px}
+  .cam-tools{display:flex;flex-direction:column;gap:10px;margin-top:10px;padding:0 2px}
+  .tool-row{display:flex;align-items:center;gap:12px;width:100%}
   .zoom-wrap{flex:1;display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--hair-strong);border-radius:12px;padding:8px 12px}
   .zoom-wrap .zl{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);flex-shrink:0}
-  .zoom-wrap input[type=range]{flex:1;accent-color:var(--signal);height:24px}
+  .zoom-wrap input[type=range]{flex:1;accent-color:var(--signal);height:24px;min-width:0}
   .zoom-wrap .zval{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--ink);min-width:30px;text-align:right}
   .btn-torch{flex-shrink:0;background:var(--card);color:var(--ink);border:1px solid var(--hair-strong);padding:0 14px;height:42px;display:flex;align-items:center;gap:7px;font-size:14px}
   .btn-torch.on{background:var(--ink);color:#fff;border-color:var(--ink)}
   .btn-torch svg{width:16px;height:16px}
+  .btn-mini{flex-shrink:0;background:var(--paper);color:var(--signal-deep);border:1px solid var(--hair-strong);padding:0 12px;height:34px;font-size:12px;font-family:"IBM Plex Mono",monospace}
+  .btn-mini:hover{background:var(--signal-soft)}
+  .tap-hint{font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--muted);text-align:center;letter-spacing:.03em}
 
   /* Export bar */
   .exportbar{position:fixed;bottom:0;left:0;right:0;background:rgba(247,246,242,.92);backdrop-filter:blur(8px);border-top:1px solid var(--hair);padding:12px 16px;z-index:20}
@@ -178,15 +182,25 @@
       <button class="btn-cam" id="camBtn">Start camera</button>
     </div>
     <div class="cam-tools" id="camTools" style="display:none">
-      <div class="zoom-wrap" id="zoomWrap" style="display:none">
-        <span class="zl">Zoom</span>
-        <input type="range" id="zoomSlider" min="1" max="5" step="0.1" value="1" aria-label="Zoom">
-        <span class="zval" id="zoomVal">1×</span>
+      <div class="tool-row">
+        <div class="zoom-wrap" id="zoomWrap" style="display:none">
+          <span class="zl">Zoom</span>
+          <input type="range" id="zoomSlider" min="1" max="5" step="0.1" value="1" aria-label="Zoom">
+          <span class="zval" id="zoomVal">1×</span>
+        </div>
+        <button class="btn-torch" id="torchBtn" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+          Light
+        </button>
       </div>
-      <button class="btn-torch" id="torchBtn" style="display:none">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
-        Light
-      </button>
+      <div class="tool-row" id="focusRow" style="display:none">
+        <div class="zoom-wrap">
+          <span class="zl">Focus</span>
+          <input type="range" id="focusSlider" aria-label="Manual focus distance">
+        </div>
+        <button class="btn-mini" id="focusAuto">Auto</button>
+      </div>
+      <div class="tap-hint" id="tapHint" style="display:none">Tap the preview to refocus</div>
     </div>
   </section>
 
@@ -304,9 +318,31 @@
       });
   }
 
-  var camTrack=null, torchOn=false;
+  var camTrack=null, torchOn=false, focusCaps=null;
 
-  // Tune the live camera: continuous autofocus, expose zoom + torch where supported
+  function camApply(advObj){
+    if(!camTrack)return Promise.reject();
+    try{ return camTrack.applyConstraints({advanced:[advObj]}); }catch(e){ return Promise.reject(e); }
+  }
+
+  // Tap the preview to force a refresh of focus (single-shot pulse, back to continuous)
+  function tapToFocus(){
+    if(!camTrack)return;
+    var modes=(focusCaps&&focusCaps.focusMode)||[];
+    if(modes.indexOf("single-shot")>=0){
+      camApply({focusMode:"single-shot"}).then(function(){
+        setTimeout(function(){ if(modes.indexOf("continuous")>=0) camApply({focusMode:"continuous"}); },900);
+      }).catch(function(){});
+      toast("Focusing…");
+    }else if(modes.indexOf("continuous")>=0){
+      // re-arm continuous AF
+      camApply({focusMode:"manual"}).then(function(){ setTimeout(function(){camApply({focusMode:"continuous"});},120); }).catch(function(){});
+      toast("Focusing…");
+    }
+  }
+  viewport.addEventListener("click",function(){ if(scanning) tapToFocus(); });
+
+  // Tune the live camera: continuous autofocus, expose zoom + torch + manual focus
   function tuneCamera(){
     var video=document.querySelector("#reader video");
     if(!video||!video.srcObject){return;}
@@ -315,41 +351,40 @@
     camTrack=tracks[0];
     var caps={};
     try{ caps=camTrack.getCapabilities?camTrack.getCapabilities():{}; }catch(e){}
+    focusCaps=caps;
 
-    // Force continuous autofocus so it keeps re-focusing on the barcode
-    var adv=[];
-    if(caps.focusMode && caps.focusMode.indexOf("continuous")>=0){ adv.push({focusMode:"continuous"}); }
-    if(adv.length){ try{ camTrack.applyConstraints({advanced:adv}); }catch(e){} }
+    // Force continuous autofocus so it keeps re-focusing on the code
+    if(caps.focusMode && caps.focusMode.indexOf("continuous")>=0){ camApply({focusMode:"continuous"}); }
 
-    // Zoom slider — the real fix for "blurry when close": stay back, zoom in
+    // Show the tap-to-focus hint when focus control exists
+    if(caps.focusMode && caps.focusMode.length){ $("tapHint").style.display="block"; }
+
+    // Zoom slider — stay back at a focusable distance, then zoom in
     var zoomWrap=$("zoomWrap"), slider=$("zoomSlider"), zval=$("zoomVal");
     if(caps.zoom && typeof caps.zoom.max==="number" && caps.zoom.max>caps.zoom.min){
-      slider.min=caps.zoom.min;
-      slider.max=caps.zoom.max;
-      slider.step=caps.zoom.step||0.1;
-      var start=Math.min(caps.zoom.max, Math.max(caps.zoom.min, caps.zoom.min + (caps.zoom.max-caps.zoom.min)*0.35));
-      slider.value=start;
-      applyZoom(start);
+      slider.min=caps.zoom.min; slider.max=caps.zoom.max; slider.step=caps.zoom.step||0.1;
+      var start=Math.min(caps.zoom.max, caps.zoom.min + (caps.zoom.max-caps.zoom.min)*0.30);
+      slider.value=start; camApply({zoom:start}); zval.textContent=(Math.round(start*10)/10)+"×";
       zoomWrap.style.display="flex";
-      slider.oninput=function(){ applyZoom(parseFloat(slider.value)); };
-      function applyZoom(z){ try{ camTrack.applyConstraints({advanced:[{zoom:z}]}); zval.textContent=(Math.round(z*10)/10)+"×"; }catch(e){} }
-    }else{
-      zoomWrap.style.display="none";
-    }
+      slider.oninput=function(){ var z=parseFloat(slider.value); camApply({zoom:z}); zval.textContent=(Math.round(z*10)/10)+"×"; };
+    }else{ zoomWrap.style.display="none"; }
+
+    // Manual focus slider (Samsung exposes focusDistance) — the reliable fix for AF that won't lock
+    var focusRow=$("focusRow"), fSlider=$("focusSlider"), fAuto=$("focusAuto");
+    if(caps.focusDistance && typeof caps.focusDistance.max==="number" && caps.focusDistance.max>caps.focusDistance.min){
+      fSlider.min=caps.focusDistance.min; fSlider.max=caps.focusDistance.max; fSlider.step=caps.focusDistance.step||0.01;
+      fSlider.value=caps.focusDistance.min; // nearest end, for close-up codes
+      focusRow.style.display="flex";
+      fSlider.oninput=function(){ camApply({focusMode:"manual"}).catch(function(){}); camApply({focusDistance:parseFloat(fSlider.value)}); };
+      fAuto.onclick=function(){ if(caps.focusMode&&caps.focusMode.indexOf("continuous")>=0){ camApply({focusMode:"continuous"}); toast("Autofocus on"); } };
+    }else{ focusRow.style.display="none"; }
 
     // Torch / flashlight for low light
     var torchBtn=$("torchBtn");
     if(caps.torch){
-      torchOn=false; torchBtn.classList.remove("on");
-      torchBtn.style.display="flex";
-      torchBtn.onclick=function(){
-        torchOn=!torchOn;
-        try{ camTrack.applyConstraints({advanced:[{torch:torchOn}]}); }catch(e){}
-        torchBtn.classList.toggle("on",torchOn);
-      };
-    }else{
-      torchBtn.style.display="none";
-    }
+      torchOn=false; torchBtn.classList.remove("on"); torchBtn.style.display="flex";
+      torchBtn.onclick=function(){ torchOn=!torchOn; camApply({torch:torchOn}); torchBtn.classList.toggle("on",torchOn); };
+    }else{ torchBtn.style.display="none"; }
   }
 
   function stopCam(){
@@ -362,7 +397,8 @@
       camBtn.textContent="Start camera";
       camBtn.classList.remove("live");
       $("camTools").style.display="none";
-      camTrack=null; torchOn=false;
+      $("tapHint").style.display="none";
+      camTrack=null; torchOn=false; focusCaps=null;
       $("torchBtn").classList.remove("on");
     }).catch(function(){});
   }
