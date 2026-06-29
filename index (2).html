@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Scan &amp; Count — QR to Excel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --paper:#F7F6F2;
+    --ink:#16181D;
+    --muted:#5A5F57;
+    --hair:#D8D9D1;
+    --hair-strong:#C2C4B8;
+    --signal:#0F9488;
+    --signal-deep:#0B6F66;
+    --signal-soft:#E2F1EF;
+    --rust:#B4452F;
+    --card:#FFFFFF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.45;
+    padding-bottom:96px;
+  }
+  .wrap{max-width:560px;margin:0 auto;padding:18px 16px 0}
+
+  /* Header */
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--hair)}
+  .brand{display:flex;flex-direction:column;gap:2px}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--signal-deep)}
+  h1{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:26px;letter-spacing:-.02em;margin:0;line-height:1.05}
+  .counts{display:flex;gap:8px;flex-shrink:0}
+  .chip{font-family:"IBM Plex Mono",monospace;text-align:center;border:1px solid var(--hair-strong);border-radius:10px;padding:6px 10px;min-width:58px;background:var(--card)}
+  .chip b{display:block;font-size:18px;font-weight:600;line-height:1}
+  .chip span{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+
+  /* Scanner */
+  .scanner{margin-top:18px}
+  .viewport{
+    position:relative;width:100%;aspect-ratio:1/1;max-height:340px;
+    background:#0d0f12;border-radius:18px;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;
+  }
+  #reader{width:100%;height:100%}
+  #reader video{object-fit:cover !important;width:100% !important;height:100% !important}
+  /* hide library's default chrome */
+  #reader__dashboard_section_csr span,#reader img{display:none !important}
+  #reader__dashboard{display:none !important}
+
+  .reticle{position:absolute;inset:0;pointer-events:none;z-index:3}
+  .reticle .frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:80%;aspect-ratio:7/4}
+  .corner{position:absolute;width:26px;height:26px;border:3px solid var(--signal)}
+  .corner.tl{top:0;left:0;border-right:none;border-bottom:none;border-top-left-radius:6px}
+  .corner.tr{top:0;right:0;border-left:none;border-bottom:none;border-top-right-radius:6px}
+  .corner.bl{bottom:0;left:0;border-right:none;border-top:none;border-bottom-left-radius:6px}
+  .corner.br{bottom:0;right:0;border-left:none;border-top:none;border-bottom-right-radius:6px}
+  .beam{position:absolute;left:6%;right:6%;height:2px;background:linear-gradient(90deg,transparent,var(--signal),transparent);top:8%;opacity:0;box-shadow:0 0 12px var(--signal)}
+  .scanning .beam{animation:sweep 2.4s ease-in-out infinite;opacity:1}
+  @keyframes sweep{0%{top:10%}50%{top:90%}100%{top:10%}}
+
+  .vp-idle{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#cfd2cb;text-align:center;padding:24px}
+  .vp-idle svg{width:46px;height:46px;opacity:.85}
+  .vp-idle p{margin:0;font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.04em;color:#9aa097;max-width:240px}
+
+  .scan-actions{display:flex;gap:10px;margin-top:12px}
+  button{font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:15px;cursor:pointer;border:none;border-radius:12px;transition:transform .06s ease,background .15s ease,box-shadow .15s ease}
+  button:active{transform:translateY(1px)}
+  button:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+  .btn-cam{flex:1;background:var(--ink);color:#fff;padding:13px}
+  .btn-cam.live{background:var(--rust)}
+  .btn-ghost{background:var(--card);color:var(--ink);border:1px solid var(--hair-strong);padding:13px 16px}
+
+  /* Entry */
+  .entry{margin-top:20px;background:var(--card);border:1px solid var(--hair);border-radius:16px;padding:16px}
+  .entry .lab{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:6px}
+  .code-input{width:100%;font-family:"IBM Plex Mono",monospace;font-size:16px;font-weight:500;color:var(--ink);background:var(--paper);border:1px solid var(--hair-strong);border-radius:10px;padding:12px 14px}
+  .code-input:focus{outline:none;border-color:var(--signal);box-shadow:0 0 0 3px var(--signal-soft)}
+  .qty-row{display:flex;align-items:flex-end;gap:12px;margin-top:14px}
+  .qty-block{flex-shrink:0}
+  .stepper{display:flex;align-items:center;border:1px solid var(--hair-strong);border-radius:10px;overflow:hidden;background:var(--paper)}
+  .stepper button{width:44px;height:48px;background:transparent;color:var(--ink);font-size:22px;font-weight:500;border-radius:0}
+  .stepper button:hover{background:var(--signal-soft)}
+  .stepper input{width:62px;height:48px;text-align:center;border:none;background:transparent;font-family:"IBM Plex Mono",monospace;font-size:18px;font-weight:600;color:var(--ink);border-left:1px solid var(--hair-strong);border-right:1px solid var(--hair-strong)}
+  .stepper input:focus{outline:none;background:#fff}
+  .btn-add{flex:1;background:var(--signal);color:#fff;height:48px;font-size:16px;box-shadow:0 2px 0 var(--signal-deep)}
+  .btn-add:disabled{background:var(--hair-strong);box-shadow:none;cursor:not-allowed;color:#fff}
+
+  /* List */
+  .list-head{display:flex;align-items:baseline;justify-content:space-between;margin:26px 4px 10px}
+  .list-head h2{font-family:"Space Grotesk",sans-serif;font-size:16px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .clear-link{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--rust);background:none;padding:4px;font-weight:500}
+  .clear-link:hover{text-decoration:underline}
+
+  .empty{border:1px dashed var(--hair-strong);border-radius:14px;padding:28px 20px;text-align:center;color:var(--muted);font-size:13.5px}
+  .empty b{color:var(--ink);font-family:"Space Grotesk",sans-serif}
+
+  ul.items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  li.item{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--hair);border-radius:12px;padding:10px 12px}
+  li.item .idx{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--muted);width:22px;flex-shrink:0}
+  li.item .meta{flex:1;min-width:0}
+  li.item .code{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;word-break:break-all;line-height:1.3}
+  li.item .time{font-size:10px;color:var(--muted);font-family:"IBM Plex Mono",monospace;margin-top:2px}
+  li.item .qedit{display:flex;align-items:center;border:1px solid var(--hair-strong);border-radius:8px;overflow:hidden;flex-shrink:0}
+  li.item .qedit button{width:30px;height:34px;background:var(--paper);color:var(--ink);font-size:17px;border-radius:0}
+  li.item .qedit button:hover{background:var(--signal-soft)}
+  li.item .qedit span{min-width:38px;text-align:center;font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:15px}
+  li.item .del{width:34px;height:34px;flex-shrink:0;background:none;color:var(--muted);font-size:18px;border-radius:8px;line-height:1}
+  li.item .del:hover{background:#fbe9e5;color:var(--rust)}
+  li.item.flash{animation:flash .9s ease}
+  @keyframes flash{0%{background:var(--signal-soft);border-color:var(--signal)}100%{background:var(--card);border-color:var(--hair)}}
+
+  /* Export bar */
+  .exportbar{position:fixed;bottom:0;left:0;right:0;background:rgba(247,246,242,.92);backdrop-filter:blur(8px);border-top:1px solid var(--hair);padding:12px 16px;z-index:20}
+  .exportbar .inner{max-width:560px;margin:0 auto;display:flex;align-items:center;gap:14px}
+  .exportbar .tot{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);line-height:1.3;flex-shrink:0}
+  .exportbar .tot b{display:block;color:var(--ink);font-size:18px;font-weight:600}
+  .btn-export{flex:1;background:var(--ink);color:#fff;height:50px;font-size:16px;display:flex;align-items:center;justify-content:center;gap:8px}
+  .btn-export:disabled{background:var(--hair-strong);cursor:not-allowed}
+  .btn-export svg{width:18px;height:18px}
+
+  /* Toast */
+  .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;font-size:13px;font-weight:500;padding:10px 18px;border-radius:30px;opacity:0;pointer-events:none;transition:all .25s ease;z-index:40;font-family:"Space Grotesk",sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (prefers-reduced-motion: reduce){
+    .scanning .beam{animation:none;opacity:.6;top:50%}
+    li.item.flash{animation:none}
+    button:active{transform:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="eyebrow">QR → Quantity → XLSX</span>
+      <h1>Scan &amp; Count</h1>
+    </div>
+    <div class="counts">
+      <div class="chip"><b id="cItems">0</b><span>Items</span></div>
+      <div class="chip"><b id="cUnits">0</b><span>Units</span></div>
+    </div>
+  </header>
+
+  <section class="scanner">
+    <div class="viewport" id="viewport">
+      <div id="reader"></div>
+      <div class="vp-idle" id="vpIdle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
+        <p>Tap Start camera to scan a QR code or product barcode — or type a code below by hand. Hold the barcode flat and fill the wide frame.</p>
+      </div>
+      <div class="reticle" id="reticle" style="display:none">
+        <div class="frame"><div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div></div>
+        <div class="beam"></div>
+      </div>
+    </div>
+    <div class="scan-actions">
+      <button class="btn-cam" id="camBtn">Start camera</button>
+    </div>
+  </section>
+
+  <section class="entry">
+    <label class="lab" for="codeInput">Scanned code</label>
+    <input class="code-input" id="codeInput" type="text" inputmode="text" placeholder="Waiting for scan… or type here" autocomplete="off">
+    <div class="qty-row">
+      <div class="qty-block">
+        <label class="lab" for="qtyInput">Quantity</label>
+        <div class="stepper">
+          <button type="button" id="qMinus" aria-label="Decrease quantity">–</button>
+          <input id="qtyInput" type="number" inputmode="numeric" value="1" min="1" step="1" aria-label="Quantity">
+          <button type="button" id="qPlus" aria-label="Increase quantity">+</button>
+        </div>
+      </div>
+      <button class="btn-add" id="addBtn" disabled>Add to list</button>
+    </div>
+  </section>
+
+  <div class="list-head">
+    <h2>Scanned items</h2>
+    <button class="clear-link" id="clearBtn" style="display:none">Clear all</button>
+  </div>
+  <div id="listZone">
+    <div class="empty" id="emptyState"><b>Nothing scanned yet.</b><br>Items you add will appear here, ready to export.</div>
+    <ul class="items" id="itemList"></ul>
+  </div>
+</div>
+
+<div class="exportbar">
+  <div class="inner">
+    <div class="tot"><b id="totUnits">0</b>total units</div>
+    <button class="btn-export" id="exportBtn" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export to Excel
+    </button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  var items = [];           // {code, qty, time}
+  var html5Qr = null;
+  var scanning = false;
+  var lastScan = {code:null, t:0};
+
+  var $ = function(id){return document.getElementById(id);};
+  var codeInput=$("codeInput"), qtyInput=$("qtyInput"), addBtn=$("addBtn"),
+      camBtn=$("camBtn"), reticle=$("reticle"), vpIdle=$("vpIdle"),
+      viewport=$("viewport"), itemList=$("itemList"), emptyState=$("emptyState"),
+      clearBtn=$("clearBtn"), exportBtn=$("exportBtn");
+
+  function toast(msg){
+    var t=$("toast"); t.textContent=msg; t.classList.add("show");
+    clearTimeout(t._tm); t._tm=setTimeout(function(){t.classList.remove("show");},1800);
+  }
+  function buzz(ms){ if(navigator.vibrate){ try{navigator.vibrate(ms||40);}catch(e){} } }
+
+  // ---- Quantity stepper ----
+  function clampQty(){
+    var v=parseInt(qtyInput.value,10);
+    if(isNaN(v)||v<1)v=1;
+    qtyInput.value=v; return v;
+  }
+  $("qMinus").onclick=function(){qtyInput.value=Math.max(1,clampQty()-1);};
+  $("qPlus").onclick=function(){qtyInput.value=clampQty()+1;};
+  qtyInput.addEventListener("change",clampQty);
+
+  // ---- Add button enable state ----
+  function refreshAdd(){ addBtn.disabled = codeInput.value.trim()==="" ; }
+  codeInput.addEventListener("input",refreshAdd);
+
+  // Enter on code -> jump to qty ; Enter on qty -> add
+  codeInput.addEventListener("keydown",function(e){ if(e.key==="Enter"){e.preventDefault(); if(codeInput.value.trim()){qtyInput.focus(); qtyInput.select();}}});
+  qtyInput.addEventListener("keydown",function(e){ if(e.key==="Enter"){e.preventDefault(); addItem();}});
+
+  // ---- Camera ----
+  camBtn.onclick=function(){ scanning ? stopCam() : startCam(); };
+
+  function startCam(){
+    if(typeof Html5Qrcode==="undefined"){ toast("Scanner library failed to load"); return; }
+    if(!html5Qr){
+      var F=(typeof Html5QrcodeSupportedFormats!=="undefined")?Html5QrcodeSupportedFormats:null;
+      var fmts=F?[
+        F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.UPC_EAN_EXTENSION,
+        F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.DATA_MATRIX, F.PDF_417
+      ]:undefined;
+      html5Qr=new Html5Qrcode("reader",{
+        formatsToSupport:fmts,
+        verbose:false,
+        experimentalFeatures:{ useBarCodeDetectorIfSupported:true }
+      });
+    }
+    // wide scan box: product barcodes are short and wide, not square
+    var config={fps:12, qrbox:function(w,h){var m=Math.min(w,h);return{width:Math.floor(m*0.86),height:Math.floor(m*0.46)};}};
+    html5Qr.start({facingMode:"environment"}, config, onScan, function(){/*per-frame: ignore*/})
+      .then(function(){
+        scanning=true;
+        vpIdle.style.display="none";
+        reticle.style.display="block";
+        viewport.classList.add("scanning");
+        camBtn.textContent="Stop camera";
+        camBtn.classList.add("live");
+      })
+      .catch(function(err){
+        console.warn(err);
+        toast("Camera unavailable — type the code instead");
+        vpIdle.querySelector("p").textContent="Camera blocked here. If you opened this inside a preview, download the file and open it in your browser. You can still type codes by hand below.";
+        codeInput.focus();
+      });
+  }
+
+  function stopCam(){
+    if(!html5Qr){return;}
+    html5Qr.stop().then(function(){
+      scanning=false;
+      reticle.style.display="none";
+      viewport.classList.remove("scanning");
+      vpIdle.style.display="flex";
+      camBtn.textContent="Start camera";
+      camBtn.classList.remove("live");
+    }).catch(function(){});
+  }
+
+  function onScan(decodedText){
+    var now=Date.now();
+    // de-dupe rapid repeats of the same code from consecutive frames
+    if(decodedText===lastScan.code && (now-lastScan.t)<1800) return;
+    lastScan={code:decodedText, t:now};
+    buzz(45);
+    codeInput.value=decodedText;
+    refreshAdd();
+    // brief visual ping on the frame
+    var f=reticle.querySelector(".frame");
+    if(f){f.style.transition="none";f.querySelectorAll(".corner").forEach(function(c){c.style.borderColor="#fff";});
+      setTimeout(function(){f.querySelectorAll(".corner").forEach(function(c){c.style.borderColor="";});},160);}
+    toast("Scanned — set quantity, then Add");
+    qtyInput.focus(); qtyInput.select();
+  }
+
+  // ---- Add / merge ----
+  function addItem(){
+    var code=codeInput.value.trim();
+    if(!code){ codeInput.focus(); return; }
+    var qty=clampQty();
+    var existing=null;
+    for(var i=0;i<items.length;i++){ if(items[i].code===code){existing=items[i];break;} }
+    var flashIdx=-1;
+    if(existing){
+      existing.qty+=qty;
+      flashIdx=items.indexOf(existing);
+      toast("Updated — "+code+" now ×"+existing.qty);
+    }else{
+      items.push({code:code, qty:qty, time:nowStamp()});
+      flashIdx=items.length-1;
+      toast("Added "+code+" ×"+qty);
+    }
+    buzz(30);
+    render(flashIdx);
+    // reset entry for the next scan
+    codeInput.value=""; qtyInput.value=1; refreshAdd();
+    lastScan={code:null,t:0};
+    if(!scanning) codeInput.focus();
+  }
+  addBtn.onclick=addItem;
+
+  function nowStamp(){
+    var d=new Date();
+    var p=function(n){return (n<10?"0":"")+n;};
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+  }
+
+  // ---- Row controls ----
+  function changeRow(idx,delta){
+    var it=items[idx]; if(!it)return;
+    it.qty+=delta;
+    if(it.qty<1){ items.splice(idx,1); } 
+    render();
+  }
+  function deleteRow(idx){ items.splice(idx,1); render(); }
+
+  $("clearBtn").onclick=function(){
+    if(items.length && confirm("Remove all "+items.length+" scanned items?")){ items=[]; render(); toast("List cleared"); }
+  };
+
+  // ---- Render ----
+  function render(flashIdx){
+    itemList.innerHTML="";
+    var totalUnits=0;
+    items.forEach(function(it,idx){
+      totalUnits+=it.qty;
+      var li=document.createElement("li");
+      li.className="item"+(idx===flashIdx?" flash":"");
+      li.innerHTML=
+        '<span class="idx">'+String(idx+1).padStart(2,"0")+'</span>'+
+        '<div class="meta"><div class="code"></div><div class="time">'+it.time+'</div></div>'+
+        '<div class="qedit"><button aria-label="Decrease">–</button><span>'+it.qty+'</span><button aria-label="Increase">+</button></div>'+
+        '<button class="del" aria-label="Delete">×</button>';
+      li.querySelector(".code").textContent=it.code; // safe text insert
+      var btns=li.querySelectorAll(".qedit button");
+      btns[0].onclick=function(){changeRow(idx,-1);};
+      btns[1].onclick=function(){changeRow(idx,1);};
+      li.querySelector(".del").onclick=function(){deleteRow(idx);};
+      itemList.appendChild(li);
+    });
+    var has=items.length>0;
+    emptyState.style.display=has?"none":"block";
+    clearBtn.style.display=has?"inline":"none";
+    exportBtn.disabled=!has;
+    $("cItems").textContent=items.length;
+    $("cUnits").textContent=totalUnits;
+    $("totUnits").textContent=totalUnits;
+  }
+
+  // ---- Export to Excel ----
+  exportBtn.onclick=function(){
+    if(!items.length)return;
+    if(typeof XLSX==="undefined"){ toast("Excel library failed to load"); return; }
+    var rows=items.map(function(it,i){
+      return {"#":i+1, "Code":it.code, "Quantity":it.qty, "Scanned at":it.time};
+    });
+    var totalUnits=items.reduce(function(s,it){return s+it.qty;},0);
+    rows.push({});
+    rows.push({"Code":"TOTAL","Quantity":totalUnits});
+    var ws=XLSX.utils.json_to_sheet(rows,{header:["#","Code","Quantity","Scanned at"]});
+    ws["!cols"]=[{wch:5},{wch:34},{wch:10},{wch:20}];
+    var wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Scans");
+    var d=new Date(), p=function(n){return(n<10?"0":"")+n;};
+    var fname="scan-count-"+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+"-"+p(d.getHours())+p(d.getMinutes())+".xlsx";
+    XLSX.writeFile(wb,fname);
+    toast("Excel file exported");
+    buzz(60);
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>
