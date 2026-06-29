@@ -58,7 +58,7 @@
   #reader__dashboard{display:none !important}
 
   .reticle{position:absolute;inset:0;pointer-events:none;z-index:3}
-  .reticle .frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:62%;aspect-ratio:1/1}
+  .reticle .frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:80%;aspect-ratio:7/4}
   .corner{position:absolute;width:26px;height:26px;border:3px solid var(--signal)}
   .corner.tl{top:0;left:0;border-right:none;border-bottom:none;border-top-left-radius:6px}
   .corner.tr{top:0;right:0;border-left:none;border-bottom:none;border-top-right-radius:6px}
@@ -157,7 +157,7 @@
       <div id="reader"></div>
       <div class="vp-idle" id="vpIdle">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
-        <p>Tap Start camera to scan a QR code — or type a code below by hand.</p>
+        <p>Tap Start camera to scan a QR code or product barcode — or type a code below by hand. Hold the barcode flat and fill the wide frame.</p>
       </div>
       <div class="reticle" id="reticle" style="display:none">
         <div class="frame"><div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div></div>
@@ -250,8 +250,20 @@
 
   function startCam(){
     if(typeof Html5Qrcode==="undefined"){ toast("Scanner library failed to load"); return; }
-    if(!html5Qr) html5Qr=new Html5Qrcode("reader",{verbose:false});
-    var config={fps:10, qrbox:function(w,h){var m=Math.floor(Math.min(w,h)*0.7);return{width:m,height:m};}, aspectRatio:1};
+    if(!html5Qr){
+      var F=(typeof Html5QrcodeSupportedFormats!=="undefined")?Html5QrcodeSupportedFormats:null;
+      var fmts=F?[
+        F.QR_CODE, F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.UPC_EAN_EXTENSION,
+        F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR, F.DATA_MATRIX, F.PDF_417
+      ]:undefined;
+      html5Qr=new Html5Qrcode("reader",{
+        formatsToSupport:fmts,
+        verbose:false,
+        experimentalFeatures:{ useBarCodeDetectorIfSupported:true }
+      });
+    }
+    // wide scan box: product barcodes are short and wide, not square
+    var config={fps:12, qrbox:function(w,h){var m=Math.min(w,h);return{width:Math.floor(m*0.86),height:Math.floor(m*0.46)};}};
     html5Qr.start({facingMode:"environment"}, config, onScan, function(){/*per-frame: ignore*/})
       .then(function(){
         scanning=true;
